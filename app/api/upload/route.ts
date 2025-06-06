@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { parsePDF, compareClauses } from '@/lib/pdf-parser'
 import { enhanceComparisonResults, calculateSemanticSimilarity } from '@/lib/ai-service'
 
+export const runtime = 'nodejs'
+
 type ComparisonStatus = "Aligned" | "Partial" | "Non-Compliant" | "Missing"
 
 export async function POST(request: NextRequest) {
@@ -32,6 +34,13 @@ export async function POST(request: NextRequest) {
     // Parse PDFs
     const clientClauses = await parsePDF(clientBuffer)
     const vendorClauses = await parsePDF(vendorBuffer)
+
+    if (clientClauses.length === 0 || vendorClauses.length === 0) {
+      return NextResponse.json(
+        { error: 'Unable to detect clauses in one or both PDF files' },
+        { status: 400 }
+      )
+    }
 
     // Compare clauses using semantic similarity
     const comparisonResults = await Promise.all(
