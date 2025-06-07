@@ -1,3 +1,5 @@
+import webpack from 'webpack';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: {
@@ -13,6 +15,12 @@ const nextConfig = {
     config.externals.push({
       'webworker-threads': 'commonjs webworker-threads'
     });
+    config.plugins = config.plugins || [];
+    config.plugins.push(
+      new webpack.IgnorePlugin({
+        resourceRegExp: /^cloudflare:sockets$/
+      })
+    );
     return config;
   }
 }
