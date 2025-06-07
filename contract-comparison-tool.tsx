@@ -37,49 +37,6 @@ interface AIComparisonResult {
   vendorClause?: string
 }
 
-const mockResults: ComparisonResult[] = [
-  {
-    clauseTitle: "Payment Terms",
-    clientClause: "Payment due within 30 days of invoice date",
-    vendorClause: "Payment due within 45 days of invoice date",
-    status: "Partial",
-    suggestedFix: "Negotiate payment terms to align with client's 30-day requirement",
-  },
-  {
-    clauseTitle: "Liability Cap",
-    clientClause: "Liability limited to contract value",
-    vendorClause: "Liability limited to contract value",
-    status: "Aligned",
-  },
-  {
-    clauseTitle: "Termination Notice",
-    clientClause: "30 days written notice required",
-    vendorClause: "90 days written notice required",
-    status: "Non-Compliant",
-    suggestedFix: "Request vendor to reduce termination notice period to 30 days",
-  },
-  {
-    clauseTitle: "Data Protection",
-    clientClause: "GDPR compliance mandatory with data breach notification within 24 hours",
-    vendorClause: "Standard data protection measures",
-    status: "Non-Compliant",
-    suggestedFix: "Require explicit GDPR compliance clause with 24-hour breach notification",
-  },
-  {
-    clauseTitle: "Intellectual Property",
-    clientClause: "Client retains all IP rights to deliverables",
-    vendorClause: "",
-    status: "Missing",
-    suggestedFix: "Add clause ensuring client retains IP rights to all deliverables",
-  },
-  {
-    clauseTitle: "Force Majeure",
-    clientClause: "Standard force majeure clause including pandemic provisions",
-    vendorClause: "Standard force majeure clause including pandemic provisions",
-    status: "Aligned",
-  },
-]
-
 const KEY_CLAUSE_TYPES: string[] = [
   'Termination',
   'Delivery Terms',
