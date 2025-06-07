@@ -1,11 +1,13 @@
 "use client"
 
-import { useState } from "react"
-import { Upload, FileText, ContrastIcon as Compare, CheckCircle, AlertTriangle, XCircle, Ban } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { Upload, FileText, ContrastIcon as Compare, CheckCircle, AlertTriangle, XCircle, Ban, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Loading } from "@/components/ui/loading"
+import ComparisonResults from '@/components/ComparisonResults'
 
 interface ComparisonResult {
   clauseTitle: string
@@ -13,6 +15,38 @@ interface ComparisonResult {
   vendorClause: string
   status: "Aligned" | "Partial" | "Non-Compliant" | "Missing"
   suggestedFix?: string
+}
+
+interface TestResult {
+  numberOfClauses: number
+  clauses: Array<{ title: string; contentPreview: string }>
+  fileInfo: {
+    name: string
+    size: number
+    type: string
+  }
+}
+
+interface TestResults {
+  client?: TestResult
+  vendor?: TestResult
+}
+
+interface KeyClause {
+  clauseType: string
+  text: string
+}
+
+interface AllClause {
+  clauseType: string
+  text: string
+}
+
+interface AIComparisonResult {
+  clauseType: string
+  summary: string
+  risk: string
+  recommendation: string
 }
 
 const mockResults: ComparisonResult[] = [
@@ -58,55 +92,193 @@ const mockResults: ComparisonResult[] = [
   },
 ]
 
+const KEY_CLAUSE_TYPES: string[] = [
+  'Termination',
+  'Delivery Terms',
+  'Payment Terms',
+  'Confidentiality and IP',
+  'Limitation of Liability'
+]
+
+const AI_MODELS = [
+  { label: 'Mistral', value: 'mistral' },
+  { label: 'OpenAI', value: 'openai' }
+]
+
 export default function ContractComparisonTool() {
   const [clientFile, setClientFile] = useState<File | null>(null)
   const [vendorFile, setVendorFile] = useState<File | null>(null)
-  const [isComparing, setIsComparing] = useState(false)
-  const [showResults, setShowResults] = useState(false)
-  const [comparisonResults, setComparisonResults] = useState<ComparisonResult[]>([])
+  const [results, setResults] = useState<ComparisonResult[]>([])
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<TestResults>({})
+  const [mounted, setMounted] = useState(false)
+  const [clientKeyClauses, setClientKeyClauses] = useState<KeyClause[]>([])
+  const [vendorKeyClauses, setVendorKeyClauses] = useState<KeyClause[]>([])
+  const [aiComparisonResults, setAIComparisonResults] = useState<AIComparisonResult[]>([])
+  const [openIndexes, setOpenIndexes] = useState<number[]>([])
+  const [selectedModel, setSelectedModel] = useState<string>('mistral')
 
-  const handleFileUpload = (file: File, type: "client" | "vendor") => {
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const handleFileUpload = useCallback((file: File, type: "client" | "vendor") => {
+    if (!mounted) return
+
     if (type === "client") {
       setClientFile(file)
     } else {
       setVendorFile(file)
     }
     setError(null)
+    setTestResults(prev => ({ ...prev, [type]: undefined }))
+  }, [mounted])
+
+  const handleAccordionToggle = (idx: number) => {
+    setOpenIndexes((prev) =>
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    )
   }
 
-  const handleCompare = async () => {
-    if (!clientFile || !vendorFile) return
-
-    setIsComparing(true)
+  const handleCompare = useCallback(async () => {
+    if (!mounted || !clientFile || !vendorFile) return
+    setLoading(true)
     setError(null)
     try {
       const formData = new FormData()
       formData.append('clientFile', clientFile)
       formData.append('vendorFile', vendorFile)
-
+      formData.append('model', selectedModel)
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       })
-
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to compare contracts')
+        const contentType = response.headers.get('content-type')
+        let errorMessage = 'Failed to compare contracts'
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } else {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`
+        }
+        throw new Error(errorMessage)
+      }
+      const data = await response.json()
+      setAIComparisonResults(data.aiComparisonResults || [])
+      setClientKeyClauses([])
+      setVendorKeyClauses([])
+      setResults([])
+      setOpenIndexes([])
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'An error occurred while comparing contracts')
+    } finally {
+      setLoading(false)
+    }
+  }, [mounted, clientFile, vendorFile, selectedModel])
+
+  const testPDF = useCallback(async (file: File, type: 'client' | 'vendor') => {
+    if (!mounted) return
+
+    setError(null)
+    setTestResults(prev => ({ ...prev, [type]: undefined }))
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      console.log(`Testing ${type} PDF:`, file.name)
+      const response = await fetch('/api/test-pdf', {
+        method: 'POST',
+        body: formData
+      })
+
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+
+      // First check if the response is ok
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type')
+        console.error('Response not OK:', {
+          status: response.status,
+          statusText: response.statusText,
+          contentType
+        })
+        
+        // Try to get the error message from the response
+        let errorMessage = `Server error: ${response.status} ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          if (errorData.error) {
+            errorMessage = errorData.error
+          }
+        } catch (e) {
+          console.error('Failed to parse error response:', e)
+        }
+        throw new Error(errorMessage)
+      }
+
+      // Then check content type
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Invalid response type:', contentType)
+        const text = await response.text()
+        console.error('Response body:', text)
+        throw new Error('Server returned invalid response format')
+      }
+
+      // Parse the response
+      const data = await response.json()
+      console.log('Response data:', data)
+      
+      if (!data.success) {
+        console.error(`${type} PDF test failed:`, data)
+        throw new Error(data.error || 'Failed to test PDF')
+      }
+
+      // Update state with the results
+      console.log(`${type} PDF test results:`, data)
+      setTestResults(prev => ({ 
+        ...prev, 
+        [type]: {
+          numberOfClauses: data.numberOfClauses || 0,
+          clauses: data.clauses || [],
+          fileInfo: data.fileInfo
+        }
+      }))
+    } catch (error) {
+      console.error(`Error testing ${type} PDF:`, error)
+      setError(error instanceof Error ? error.message : 'Failed to test PDF')
+    }
+  }, [mounted])
+
+  const testAPI = async () => {
+    try {
+      console.log('Testing API route...')
+      const response = await fetch('/api/test', {
+        method: 'POST'
+      })
+      
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+      
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.error('Invalid response type:', contentType)
+        console.error('Response body:', text)
+        throw new Error('Server returned invalid response format')
       }
 
       const data = await response.json()
-      setComparisonResults(data.results)
-      setShowResults(true)
+      console.log('Response data:', data)
     } catch (error) {
-      console.error('Error comparing contracts:', error)
-      setError(error instanceof Error ? error.message : 'An error occurred while comparing contracts')
-    } finally {
-      setIsComparing(false)
+      console.error('Error testing API:', error)
+      setError(error instanceof Error ? error.message : 'Failed to test API')
     }
   }
 
-  const getStatusBadge = (status: ComparisonResult["status"]) => {
+  const getStatusBadge = useCallback((status: ComparisonResult["status"]) => {
     const statusConfig = {
       Aligned: {
         icon: CheckCircle,
@@ -135,6 +307,11 @@ export default function ContractComparisonTool() {
         {status}
       </Badge>
     )
+  }, [])
+
+  if (!mounted) {
+    // Prevent hydration error by not rendering until mounted
+    return null
   }
 
   return (
@@ -146,6 +323,12 @@ export default function ContractComparisonTool() {
           <p className="text-gray-600 text-xl font-light max-w-2xl mx-auto leading-relaxed">
             Upload and compare contracts to identify key differences and compliance issues
           </p>
+          <button
+            onClick={testAPI}
+            className="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+          >
+            Test API Route
+          </button>
         </div>
 
         {error && (
@@ -176,6 +359,15 @@ export default function ContractComparisonTool() {
                   <div className="text-gray-800">
                     <p className="font-semibold text-lg mb-2">{clientFile.name}</p>
                     <p className="text-sm text-gray-500 font-light">Click to replace file</p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        testPDF(clientFile, 'client')
+                      }}
+                      className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                    >
+                      Test PDF Parsing
+                    </button>
                   </div>
                 ) : (
                   <div className="text-gray-600">
@@ -191,6 +383,34 @@ export default function ContractComparisonTool() {
                   onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "client")}
                 />
               </div>
+              {testResults.client && (
+                <div className="mt-4 p-4 bg-gray-100 rounded">
+                  <h3 className="font-semibold">Test Results:</h3>
+                  {testResults.client.fileInfo && (
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-600">File Information:</p>
+                      <ul className="list-disc pl-5 text-sm">
+                        <li>Name: {testResults.client.fileInfo.name}</li>
+                        <li>Size: {(testResults.client.fileInfo.size / 1024).toFixed(2)} KB</li>
+                        <li>Type: {testResults.client.fileInfo.type}</li>
+                      </ul>
+                    </div>
+                  )}
+                  {testResults.client.numberOfClauses > 0 && (
+                    <>
+                      <p>Number of clauses: {testResults.client.numberOfClauses}</p>
+                      <div className="mt-2">
+                        <h4 className="font-medium">Clauses found:</h4>
+                        <ul className="list-disc pl-5">
+                          {testResults.client.clauses.map((c, i) => (
+                            <li key={i}>{c.title}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -214,6 +434,15 @@ export default function ContractComparisonTool() {
                   <div className="text-gray-800">
                     <p className="font-semibold text-lg mb-2">{vendorFile.name}</p>
                     <p className="text-sm text-gray-500 font-light">Click to replace file</p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        testPDF(vendorFile, 'vendor')
+                      }}
+                      className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                    >
+                      Test PDF Parsing
+                    </button>
                   </div>
                 ) : (
                   <div className="text-gray-600">
@@ -229,6 +458,34 @@ export default function ContractComparisonTool() {
                   onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "vendor")}
                 />
               </div>
+              {testResults.vendor && (
+                <div className="mt-4 p-4 bg-gray-100 rounded">
+                  <h3 className="font-semibold">Test Results:</h3>
+                  {testResults.vendor.fileInfo && (
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-600">File Information:</p>
+                      <ul className="list-disc pl-5 text-sm">
+                        <li>Name: {testResults.vendor.fileInfo.name}</li>
+                        <li>Size: {(testResults.vendor.fileInfo.size / 1024).toFixed(2)} KB</li>
+                        <li>Type: {testResults.vendor.fileInfo.type}</li>
+                      </ul>
+                    </div>
+                  )}
+                  {testResults.vendor.numberOfClauses > 0 && (
+                    <>
+                      <p>Number of clauses: {testResults.vendor.numberOfClauses}</p>
+                      <div className="mt-2">
+                        <h4 className="font-medium">Clauses found:</h4>
+                        <ul className="list-disc pl-5">
+                          {testResults.vendor.clauses.map((c, i) => (
+                            <li key={i}>{c.title}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -237,10 +494,10 @@ export default function ContractComparisonTool() {
         <div className="flex justify-center mb-12">
           <Button
             onClick={handleCompare}
-            disabled={!clientFile || !vendorFile || isComparing}
+            disabled={!clientFile || !vendorFile || loading}
             className="bg-gradient-to-r from-purple-600 to-purple-800 text-white px-8 py-6 text-lg font-semibold rounded-xl hover:from-purple-700 hover:to-purple-900 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isComparing ? (
+            {loading ? (
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Comparing...
@@ -254,92 +511,61 @@ export default function ContractComparisonTool() {
           </Button>
         </div>
 
-        {/* Results Placeholder or Actual Results */}
-        {!showResults ? (
-          <Card className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl">
-            <CardContent className="py-16 text-center">
-              <div className="text-gray-400 mb-4">
-                <Compare className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              </div>
-              <p className="text-gray-600 text-lg font-light">Results will appear here after comparison is complete.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="bg-white shadow-xl border-0 rounded-2xl overflow-hidden">
-            <CardHeader className="bg-gray-50 border-b border-gray-200">
-              <CardTitle className="text-gray-800 text-2xl font-bold">Comparison Results</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-gray-200 bg-gray-50">
-                      <TableHead className="font-bold text-gray-800 py-4 px-6">Clause Title</TableHead>
-                      <TableHead className="font-bold text-gray-800 py-4 px-6">Client Clause</TableHead>
-                      <TableHead className="font-bold text-gray-800 py-4 px-6">Vendor Clause</TableHead>
-                      <TableHead className="font-bold text-gray-800 py-4 px-6">Status</TableHead>
-                      <TableHead className="font-bold text-gray-800 py-4 px-6">Suggested Fix</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {comparisonResults.map((result, index) => (
-                      <TableRow key={index} className="border-gray-100 hover:bg-gray-50 transition-colors">
-                        <TableCell className="font-semibold text-gray-800 py-4 px-6">{result.clauseTitle}</TableCell>
-                        <TableCell className="text-gray-600 max-w-xs py-4 px-6 font-light">
-                          <div className="truncate" title={result.clientClause}>
-                            {result.clientClause}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-gray-600 max-w-xs py-4 px-6 font-light">
-                          <div className="truncate" title={result.vendorClause || "Not specified"}>
-                            {result.vendorClause || "Not specified"}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-4 px-6">{getStatusBadge(result.status)}</TableCell>
-                        <TableCell className="text-gray-600 max-w-xs py-4 px-6 font-light">
-                          {result.suggestedFix && (
-                            <div className="truncate" title={result.suggestedFix}>
-                              {result.suggestedFix}
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+        {/* AI Model Toggle */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            {AI_MODELS.map((model) => (
+              <button
+                key={model.value}
+                className={`px-6 py-2 font-semibold focus:outline-none transition-colors duration-150 ${selectedModel === model.value ? 'bg-purple-700 text-white' : 'bg-white text-gray-700 hover:bg-purple-50'}`}
+                onClick={() => setSelectedModel(model.value)}
+                disabled={loading}
+                aria-pressed={selectedModel === model.value}
+              >
+                {model.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-              {/* Summary Stats */}
-              <div className="p-6 bg-gray-50 border-t border-gray-200">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-green-200">
-                    <div className="text-3xl font-bold text-green-600 mb-1">
-                      {comparisonResults.filter(r => r.status === "Aligned").length}
+        {/* Contract Review Results Section */}
+        {mounted && aiComparisonResults.length > 0 && (
+          <div className="mt-12 max-w-2xl mx-auto">
+            <h2 className="text-3xl font-bold mb-6 text-purple-800 text-center">Contract Review Results</h2>
+            <div className="text-center mb-4 text-sm text-gray-500">AI Model: <span className="font-semibold text-purple-700">{AI_MODELS.find(m => m.value === selectedModel)?.label}</span></div>
+            <div className="space-y-4">
+              {aiComparisonResults.map((result, idx) => (
+                <div key={result.clauseType} className="border border-gray-200 rounded-xl bg-white shadow">
+                  <button
+                    className="w-full flex items-center justify-between px-6 py-4 text-lg font-semibold text-left focus:outline-none"
+                    onClick={() => handleAccordionToggle(idx)}
+                    aria-expanded={openIndexes.includes(idx)}
+                  >
+                    <span>{result.clauseType}</span>
+                    {openIndexes.includes(idx) ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                  </button>
+                  {openIndexes.includes(idx) && (
+                    <div className="px-6 pb-6">
+                      <div className="mb-2">
+                        <span className="font-semibold text-gray-700">Risk Level:</span>
+                        <span className={`ml-2 font-bold ${result.risk === 'HIGH' ? 'text-red-600' : result.risk === 'MEDIUM' ? 'text-yellow-600' : result.risk === 'LOW' ? 'text-green-600' : 'text-gray-500'}`}>{result.risk}</span>
+                      </div>
+                      <div className="mb-2">
+                        <span className="font-semibold text-gray-700">Recommendation for Vendor:</span>
+                        <div className="ml-2 mt-1 text-gray-900 whitespace-pre-line">{result.recommendation}</div>
+                      </div>
+                      {result.summary && (
+                        <div className="mt-4">
+                          <span className="font-semibold text-gray-700">Summary:</span>
+                          <div className="ml-2 mt-1 text-gray-800 whitespace-pre-line">{result.summary}</div>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-sm text-green-700 font-medium">Aligned</div>
-                  </div>
-                  <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-yellow-200">
-                    <div className="text-3xl font-bold text-yellow-600 mb-1">
-                      {comparisonResults.filter(r => r.status === "Partial").length}
-                    </div>
-                    <div className="text-sm text-yellow-700 font-medium">Partial</div>
-                  </div>
-                  <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-red-200">
-                    <div className="text-3xl font-bold text-red-600 mb-1">
-                      {comparisonResults.filter(r => r.status === "Non-Compliant").length}
-                    </div>
-                    <div className="text-sm text-red-700 font-medium">Non-Compliant</div>
-                  </div>
-                  <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
-                    <div className="text-3xl font-bold text-gray-600 mb-1">
-                      {comparisonResults.filter(r => r.status === "Missing").length}
-                    </div>
-                    <div className="text-sm text-gray-700 font-medium">Missing</div>
-                  </div>
+                  )}
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
