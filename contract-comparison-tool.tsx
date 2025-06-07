@@ -210,9 +210,11 @@ export default function ContractComparisonTool() {
       <div className="container mx-auto px-6 py-12">
         {/* Header Section */}
         <div className="flex flex-col items-center mb-16">
+          {/*
           <div className="mb-4">
             <Image src="/kpmg-digital-village.png" alt="KPMG Digital Village Logo" width={120} height={120} className="rounded" />
           </div>
+          */}
           <h1 className="text-5xl font-bold text-gray-900 mb-2 tracking-tight text-center">Contract Comparison Tool</h1>
           <p className="text-gray-600 text-xl font-light max-w-2xl leading-relaxed text-center">
             Upload and compare contracts to identify key differences and compliance issues

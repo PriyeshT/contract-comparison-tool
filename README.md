@@ -2,7 +2,9 @@
 
 A modern, AI-powered web application for analyzing and comparing client and vendor contracts. Upload two PDF contracts, and the tool will extract, compare, and summarize key clauses, highlight risks, and provide actionable recommendations—all with a beautiful, interactive UI.
 
+<!--
 ![KPMG Digital Village Logo](public/kpmg-digital-village.png)
+-->
 
 ---
 
@@ -15,7 +17,7 @@ A modern, AI-powered web application for analyzing and comparing client and vend
 - **Detailed Results:** Each clause displays risk, summary, recommendation, and the original source text (collapsible).
 - **Beautiful UI/UX:** Full-width, animated cards, color-coded risk badges, icons, and smooth transitions.
 - **Model Switcher:** Toggle between Mistral and OpenAI for real-time comparison.
-- **Branded Experience:** Includes KPMG Digital Village branding and a polished, client-ready interface.
+- **Branded Experience:** <!-- Includes KPMG Digital Village branding and a polished, client-ready interface. -->
 
 ---
 
@@ -109,7 +111,9 @@ This project is for demonstration and internal use. For commercial or client dep
 
 ## Acknowledgements
 
+<!--
 - KPMG Digital Village for branding and design guidance.
+-->
 - OpenAI and Mistral for AI-powered contract analysis.
 
 ---
