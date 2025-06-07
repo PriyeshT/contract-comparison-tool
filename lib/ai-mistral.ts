@@ -50,7 +50,23 @@ Return only a valid JSON object and nothing else — no explanation, no markdown
     if (content.startsWith('```')) {
       content = content.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim()
     }
-    const result = JSON.parse(content)
+    // Sanitize: remove all control characters except standard whitespace
+    content = content.replace(/[\u0000-\u001F\u007F-\u009F]/g, (c: string) => {
+      // Allow tab (\u0009), LF (\u000A), CR (\u000D)
+      if (c === '\u0009' || c === '\u000A' || c === '\u000D') return c
+      return ''
+    })
+    let result
+    try {
+      result = JSON.parse(content)
+    } catch (jsonErr) {
+      console.error('Mistral response JSON parse error:', jsonErr, '\nContent:', content)
+      return {
+        summary: 'Unable to generate summary due to invalid AI response.',
+        risk: 'UNKNOWN',
+        recommendation: 'Unable to generate recommendation due to invalid AI response.'
+      }
+    }
     return {
       summary: result.summary || '',
       risk: result.risk || '',

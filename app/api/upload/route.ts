@@ -100,13 +100,20 @@ export async function POST(request: NextRequest) {
               vendorText: vendorClause.text
             })
           }
-          return { clauseType: clientClause.clauseType, ...aiRes }
+          return {
+            clauseType: clientClause.clauseType,
+            ...aiRes,
+            clientClause: clientClause.text,
+            vendorClause: vendorClause.text
+          }
         } else {
           return {
             clauseType: clientClause.clauseType,
             summary: 'Clause not found in one or both contracts.',
             risk: 'UNKNOWN',
-            recommendation: 'No recommendation available.'
+            recommendation: 'No recommendation available.',
+            clientClause: clientClause.text || '',
+            vendorClause: vendorClause.text || ''
           }
         }
       })
