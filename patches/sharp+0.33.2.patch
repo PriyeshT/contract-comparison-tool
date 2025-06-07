@@ -1,0 +1,19 @@
+{
+  "name": "sharp",
+  "version": "0.33.2",
+  "description": "High performance Node.js image processing, the fastest module to resize JPEG, PNG, WebP, AVIF and TIFF images",
+  "main": "build/Release/sharp.node",
+  "types": "types/index.d.ts",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "overrides": {
+    "sharp": {
+      "build": {
+        "env": {
+          "SHARP_IGNORE_GLOBAL_LIBVIPS": "1"
+        }
+      }
+    }
+  }
+} 
