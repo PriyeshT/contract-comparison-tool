@@ -1,25 +1,16 @@
 import { pipeline } from '@xenova/transformers'
 import OpenAI from 'openai'
+import { ComparisonResult } from './pdf-parser'
 
 // Initialize OpenAI client
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY || ''
 })
 
 interface Clause {
   title: string
   content: string
   type?: string
-  risk?: 'low' | 'medium' | 'high'
-  analysis?: string
-}
-
-interface ComparisonResult {
-  clauseTitle: string
-  clientClause: string
-  vendorClause: string
-  status: "Aligned" | "Partial" | "Non-Compliant" | "Missing"
-  suggestedFix?: string
   risk?: 'low' | 'medium' | 'high'
   analysis?: string
 }
@@ -48,6 +39,15 @@ export async function analyzeClause(clause: string): Promise<{
   analysis: string
 }> {
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('OpenAI API key not found. Using fallback analysis.')
+      return {
+        type: 'Unknown',
+        risk: 'medium',
+        analysis: 'AI analysis not available. Please set OPENAI_API_KEY in .env.local'
+      }
+    }
+
     // Use OpenAI to analyze the clause
     const response = await openai.chat.completions.create({
       model: "gpt-4",
@@ -86,6 +86,10 @@ export async function analyzeClause(clause: string): Promise<{
 
 export async function generateSuggestedFix(clientClause: string, vendorClause: string): Promise<string> {
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      return 'AI suggestions not available. Please set OPENAI_API_KEY in .env.local'
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
@@ -147,4 +151,62 @@ export async function enhanceComparisonResults(results: ComparisonResult[]): Pro
   )
 
   return enhancedResults
+}
+
+export async function enhanceResultsWithAI(results: ComparisonResult[]): Promise<ComparisonResult[]> {
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('OpenAI API key not found, skipping AI enhancement')
+    return results
+  }
+
+  if (!Array.isArray(results)) {
+    throw new TypeError('Expected results to be an array in enhanceResultsWithAI, but got: ' + typeof results)
+  }
+
+  try {
+    const enhancedResults = await Promise.all(
+      results.map(async (result) => {
+        if (result.status === 'Aligned') return result
+
+        const prompt = `
+          Analyze the following contract clauses and provide specific suggestions for alignment:
+          
+          Client Clause: ${result.clientClause}
+          Vendor Clause: ${result.vendorClause}
+          Current Status: ${result.status}
+          
+          Provide specific suggestions for how to modify the vendor clause to better align with the client's requirements.
+          Focus on concrete, actionable changes.
+        `
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            {
+              role: "system",
+              content: "You are a legal contract analysis expert. Provide specific, actionable suggestions for aligning contract clauses."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 500
+        })
+
+        const suggestion = completion.choices[0]?.message?.content || 'No specific suggestions available'
+        
+        return {
+          ...result,
+          suggestedFix: suggestion
+        }
+      })
+    )
+
+    return enhancedResults
+  } catch (error) {
+    console.error('Error enhancing results with AI:', error)
+    return results
+  }
 } 
