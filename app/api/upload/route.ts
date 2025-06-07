@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { parsePDF, compareClauses } from '@/lib/pdf-parser'
 import { enhanceResultsWithAI } from '@/lib/ai-service'
 import { compareClausesWithMistral } from '@/lib/ai-mistral'
 import { compareClausesWithOpenAI } from '@/lib/ai-openai'
@@ -56,6 +55,7 @@ export async function POST(request: NextRequest) {
     }
     let clientClauses, vendorClauses
     try {
+      const { parsePDF, compareClauses } = await import('@/lib/pdf-parser')
       clientClauses = await parsePDF(clientBuffer)
       vendorClauses = await parsePDF(vendorBuffer)
     } catch (e) {
