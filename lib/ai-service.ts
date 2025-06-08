@@ -1,6 +1,6 @@
-import { pipeline } from '@xenova/transformers'
 import OpenAI from 'openai'
 import { ComparisonResult } from './pdf-parser'
+import natural from 'natural'
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -15,23 +15,8 @@ interface Clause {
   analysis?: string
 }
 
-// Initialize the text classification pipeline
-let classifier: any = null
-async function getClassifier() {
-  if (!classifier) {
-    classifier = await pipeline('text-classification', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english')
-  }
-  return classifier
-}
-
-// Initialize the text embedding pipeline
-let embedder: any = null
-async function getEmbedder() {
-  if (!embedder) {
-    embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2')
-  }
-  return embedder
-}
+// Initialize TF-IDF
+const tfidf = new natural.TfIdf()
 
 export async function analyzeClause(clause: string): Promise<{
   type: string
@@ -115,21 +100,36 @@ export async function generateSuggestedFix(clientClause: string, vendorClause: s
 
 export async function calculateSemanticSimilarity(text1: string, text2: string): Promise<number> {
   try {
-    const embedder = await getEmbedder()
-    const output1 = await embedder(text1, { pooling: 'mean', normalize: true })
-    const output2 = await embedder(text2, { pooling: 'mean', normalize: true })
+    // Create a new TF-IDF instance for this comparison
+    const tfidf = new natural.TfIdf()
     
-    // Calculate cosine similarity
-    const similarity = dotProduct(output1.data, output2.data)
-    return similarity
+    // Add both documents to TF-IDF
+    tfidf.addDocument(text1)
+    tfidf.addDocument(text2)
+    
+    // Get the terms from both documents
+    const terms1 = new Set(text1.toLowerCase().split(/\W+/))
+    const terms2 = new Set(text2.toLowerCase().split(/\W+/))
+    
+    // Calculate similarity using TF-IDF scores
+    let similarity = 0
+    let totalWeight = 0
+    
+    // Compare terms from both documents
+    for (const term of new Set([...terms1, ...terms2])) {
+      const scores = tfidf.tfidfs(term)
+      if (scores[0] > 0 && scores[1] > 0) {
+        similarity += Math.min(scores[0], scores[1])
+        totalWeight += Math.max(scores[0], scores[1])
+      }
+    }
+    
+    // Normalize similarity score
+    return totalWeight > 0 ? similarity / totalWeight : 0
   } catch (error) {
     console.error('Error calculating similarity:', error)
     return 0
   }
-}
-
-function dotProduct(a: number[], b: number[]): number {
-  return a.reduce((sum, val, i) => sum + val * b[i], 0)
 }
 
 export async function enhanceComparisonResults(results: ComparisonResult[]): Promise<ComparisonResult[]> {

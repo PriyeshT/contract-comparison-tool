@@ -1,6 +1,5 @@
 import natural from 'natural'
 import pdfParse from 'pdf-parse'
-import { pipeline } from '@xenova/transformers'
 import OpenAI from 'openai'
 
 const tokenizer = new natural.WordTokenizer()
@@ -28,15 +27,6 @@ export interface ComparisonResult {
   clauseType: string
   summary?: string
   recommendation?: string
-}
-
-// Initialize the text embedding pipeline
-let embedder: any = null
-async function getEmbedder() {
-  if (!embedder) {
-    embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2')
-  }
-  return embedder
 }
 
 // Text extraction using pdf-parse
@@ -410,11 +400,11 @@ function groupClausesByType(clauses: Clause[]): Record<string, Clause[]> {
 }
 
 async function findBestMatchWithEmbeddings(clientClause: Clause, vendorClauses: Clause[]): Promise<{ clause: Clause; similarity: number }> {
-  const embedder = await getEmbedder()
+  // Create a new TF-IDF instance for this comparison
+  const tfidf = new TfIdf()
   
-  // Get embedding for client clause
-  const clientOutput = await embedder(clientClause.content, { pooling: 'mean', normalize: true })
-  const clientEmbedding = clientOutput.data
+  // Add client clause
+  tfidf.addDocument(clientClause.content)
   
   let bestMatch: { clause: Clause; similarity: number } = {
     clause: vendorClauses[0],
@@ -423,25 +413,38 @@ async function findBestMatchWithEmbeddings(clientClause: Clause, vendorClauses: 
   
   // Compare with each vendor clause
   for (const vendorClause of vendorClauses) {
-    const vendorOutput = await embedder(vendorClause.content, { pooling: 'mean', normalize: true })
-    const vendorEmbedding = vendorOutput.data
+    // Add vendor clause to TF-IDF
+    tfidf.addDocument(vendorClause.content)
     
-    // Calculate cosine similarity
-    const similarity = calculateCosineSimilarity(clientEmbedding, vendorEmbedding)
+    // Get the terms from both documents
+    const terms1 = new Set(clientClause.content.toLowerCase().split(/\W+/))
+    const terms2 = new Set(vendorClause.content.toLowerCase().split(/\W+/))
     
-    if (similarity > bestMatch.similarity) {
+    // Calculate similarity using TF-IDF scores
+    let similarity = 0
+    let totalWeight = 0
+    
+    // Compare terms from both documents
+    for (const term of new Set([...terms1, ...terms2])) {
+      const scores = tfidf.tfidfs(term)
+      if (scores[0] > 0 && scores[1] > 0) {
+        similarity += Math.min(scores[0], scores[1])
+        totalWeight += Math.max(scores[0], scores[1])
+      }
+    }
+    
+    // Normalize similarity score
+    const normalizedSimilarity = totalWeight > 0 ? similarity / totalWeight : 0
+    
+    if (normalizedSimilarity > bestMatch.similarity) {
       bestMatch = {
         clause: vendorClause,
-        similarity
+        similarity: normalizedSimilarity
       }
     }
   }
   
   return bestMatch
-}
-
-function calculateCosineSimilarity(a: number[], b: number[]): number {
-  return a.reduce((sum, val, i) => sum + val * b[i], 0)
 }
 
 async function analyzeClauseDifferences(clientClause: Clause, vendorClause: Clause, clauseType: string): Promise<{ summary: string; recommendation: string }> {
