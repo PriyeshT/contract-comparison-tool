@@ -21,11 +21,6 @@ const nextConfig = {
         resourceRegExp: /^cloudflare:sockets$/
       })
     );
-    config.plugins.push(
-      new webpack.IgnorePlugin({
-        resourceRegExp: /^sharp$/
-      })
-    );
     return config;
   }
 }
